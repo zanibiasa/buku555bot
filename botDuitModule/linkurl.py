@@ -1,7 +1,7 @@
 import time
 from botDuitModule import bot, dispatcher, app, db
 from botDuitModule.secret import bot_token, server_url
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
 from telegram.ext import (CommandHandler, ConversationHandler, CallbackQueryHandler,
                           MessageHandler, Filters)
 from flask import request
@@ -10,39 +10,32 @@ from botDuitModule.dbase import User, Hutang
 list_keyboardbutton = []
 
 SAPA, BUAT_APA, BERAPA, APA_BERAPA, BUAT_BARU = range(5)
-start = 0
+
 
 def message_handler_start():
-    print('message send')
     return 'Nak buka buku \n hutang ngan sapa'
 
 
 def handler_start(update, context):
-    print('handler_start ada')
-    print(context.args)
-    handler_siapa(update)
-    print('handler_start update')
-    update.message.reply_text(message_handler_start(),
-                              reply_markup=handler_siapa(update))
-    time.sleep(13)
-    stop = time.time()
-    print(stop)
-    print(start)
-    buuu = (stop-start)
+    query = update.callback_query
+    if query:
+        update = query
 
-    print(buuu)                        
+    update.message.reply_text(message_handler_start(),
+                              reply_markup=handler_siapa(update, context))
+    print('context.args: ', context.args)
     return SAPA
 
 
-def handler_siapa(update):
-    print('siapa update')
-    aaa = array_senarai(update)
-    print('siapa aaaa')
+def handler_siapa(update, context):
+
+    aaa = array_senarai(update, context)
+
     keyboardbutton = [InlineKeyboardButton(
         'TAMBAH ORANG', callback_data='WOMBOGETA')]
-    print('sssss')
+
     aaa.append(keyboardbutton)
-    print('asd')
+
     return InlineKeyboardMarkup(aaa)
 
 
@@ -58,7 +51,7 @@ def handler_hutang_nilai(update, context):
     query = update.callback_query
     query.answer()
     print('sssasdasdasdada')
-    query.edit_message_text('Berapa nilai hutang(RM)?')
+    query.edit_message_text('Berapa nilai hutang(RMXX.XX)?')
     return BERAPA
 
 
@@ -72,15 +65,16 @@ def handler_hutang_description(update, context):
 
 
 def dbase_simpan_nama(update, context):
+    print('dbase_simpan_nama')
     sapa = str(update.message.text)
     origin = update.message.chat_id
 
-    ass = User(nama_first_id=origin, nama_diberi=sapa)
+    ass = User(nama_pemberi_id=origin, nama_diberi=sapa)
 
     db.session.add(ass)
     db.session.commit()
     id_sapa = ass.id
-    context.user_data['sapa'] = sapa
+    context.user_data['nama'] = sapa
     context.user_data['id_sapa'] = id_sapa
     keyboard = handler_pilih_hutang()
     update.message.reply_text(text='Nak buat apa', reply_markup=keyboard)
@@ -117,13 +111,13 @@ def handler_pilih_hutang():
     print('handler_pilih huang')
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton(
-            'Kau hutang dia', callback_data='KAU')],
+            'Kau hutang dia', callback_data='QORTEXKAU')],
         [InlineKeyboardButton(
-            'Dia hutang kau', callback_data='DIA')],
+            'Dia hutang kau', callback_data='QORTEXDIA')],
         [InlineKeyboardButton(
-            'Tolak Hutang', callback_data='TOLAK')],
+            'Tolak Hutang', callback_data='QORTEXTOLAK')],
         [InlineKeyboardButton(
-            'Cancel', callback_data='CANCELLAA')]
+            'Main Menu', callback_data='CANCEL')]
     ])
 
     return keyboard
@@ -137,13 +131,48 @@ def set_hutang_kau(update, context):
 
 
 def set_hutang_dia(update, context):
+
     print('sethutang kjau')
     context.user_data['hutang'] = True
 
     handler_hutang_nilai(update, context)
 
 
-def array_senarai(update):
+def menu_tolak_hutang(update, context):
+    print('menu_tolak hutang')
+    query = update.callback_query
+    query.answer()
+
+    print('----------------------')
+    tuliss = context.user_data['balance_hutang']
+    tulis = f'YAKIN CLEAR HUTANG - RM{tuliss}'
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            tulis, callback_data='QORTEXDELETE')],
+        [InlineKeyboardButton(
+            'Xlah Gurau Je', callback_data='QORTEXNAMA')]
+    ])
+    query.edit_message_text(text='WARNING', reply_markup=keyboard)
+
+    return BUAT_APA
+
+
+def method_delete_hutang(update, context):
+    print('method_delete hutang')
+    print()
+    Hutang.query.filter(
+        Hutang.sape_id == context.user_data['id_sapa']).delete()
+
+    db.session.commit()
+    print('boleh commit')
+    query = update.callback_query
+    query.answer()
+    handler_menu_orang_tu(update, context)
+    return BUAT_APA
+
+
+def array_senarai(update, context):
     print('senarai')
     list_keyboardbutton = []
     keyboardbutton = []
@@ -154,12 +183,11 @@ def array_senarai(update):
 
         n = str(total.id)
         nama_diberi = str(total.nama_diberi)
-
+        context.user_data[n] = nama_diberi
         keyboardbutton = [InlineKeyboardButton(nama_diberi, callback_data=n)]
 
         list_keyboardbutton.append(keyboardbutton)
 
-    
     return list_keyboardbutton
 
 
@@ -171,26 +199,48 @@ def array_hutang(update, context):
         Hutang.sape_id == context.user_data['id_sapa']).all()
     print(total_hutang)
     tulisan = ''
+    tulisan = tulisan + context.user_data['nama'] + ': \n'
     if total_hutang:
+
         tulisan = tulisan + 'Dia hutang: \n'
+        nilai_kira_aku = 0
         for total in total_hutang:
+
             if total.dia_hutang:
 
                 nama = str(total.hutang_nama)
                 nilai = float(total.nilai_hutang)
-                nilai = str(nilai/100)
-                tulisan = tulisan + nama + ' - ' + 'RM' + nilai + '\n'
-        tulisan = tulisan +  '\nKau hutang: \n'
-        for total in total_hutang:
-            if not (total.dia_hutang):
-                nama = str(total.hutang_nama)
-                nilai = float(total.nilai_hutang)
+                nilai_kira_aku = nilai_kira_aku + total.nilai_hutang
                 nilai = str(nilai/100)
                 tulisan = tulisan + nama + ' - ' + 'RM' + nilai + '\n'
 
+        print('first')
+        print(nilai_kira_aku)
+        tulisan = tulisan + '\nKau hutang: \n'
+
+        nilai_kira_dia = 0
+        for total in total_hutang:
+            if not (total.dia_hutang):
+
+                nama = str(total.hutang_nama)
+                nilai = float(total.nilai_hutang)
+                nilai_kira_dia = nilai_kira_dia + total.nilai_hutang
+                nilai = str(nilai/100)
+                tulisan = tulisan + nama + ' - ' + 'RM' + nilai + '\n'
+        nilai_kira_balance = nilai_kira_aku - nilai_kira_dia
+        nilai_kira_balance = float(nilai_kira_balance)/100
+        print(nilai_kira_balance)
+        tulisan = tulisan + '\nHutang bersih: \n'
+        if (nilai_kira_balance < 0):
+            tulisan = tulisan + 'KAU hutang RM' + str(abs(nilai_kira_balance))
+        else:
+            tulisan = tulisan + 'DIA hutang RM' + str(abs(nilai_kira_balance))
+
+        context.user_data['balance_hutang'] = str(abs(nilai_kira_balance))
     else:
         tulisan = 'Tak de hutang'
         print(tulisan)
+
     return tulisan
 
 
@@ -202,9 +252,14 @@ def handler_menu_orang_tu(update, context):
     if query:
 
         print(query.answer())
-        print(int(query['data']))
-        context.user_data['id_sapa'] = int(query['data'])
-
+        print(query['data'])
+        if not ((query['data'] =='QORTEXDELETE') or (query['data']=='QORTEXNAMA')):
+            print('query data')
+            context.user_data['id_sapa'] = int(query['data'])
+            context.user_data['nama'] = context.user_data[query['data']]
+        print('daata qqq')
+        print(context.user_data['nama'])
+        print('ottttttt')
     print(context.user_data['id_sapa'])
     tulis = array_hutang(update, context)
     print(tulis)
@@ -254,11 +309,21 @@ conv_start = ConversationHandler(
         ],
 
         BUAT_APA: [
-            CallbackQueryHandler(set_hutang_kau, pattern=r'^KAU',
+            CallbackQueryHandler(set_hutang_kau, pattern=r'^QORTEXKAU',
                                  pass_update_queue=True, pass_chat_data=True, pass_user_data=True),
-            CallbackQueryHandler(set_hutang_dia, pattern=r'^DIA',
+            CallbackQueryHandler(set_hutang_dia, pattern=r'^QORTEXDIA',
                                  pass_update_queue=True, pass_chat_data=True, pass_user_data=True),
-            MessageHandler(Filters.text, handler_hutang_description)
+            CallbackQueryHandler(menu_tolak_hutang, pattern=r'QORTEXTOLAK',
+                                 pass_update_queue=True, pass_chat_data=True, pass_user_data=True),
+            CallbackQueryHandler(handler_menu_orang_tu, pattern=r'^QORTEXNAMA',
+                                 pass_update_queue=True, pass_chat_data=True, pass_user_data=True),
+            CallbackQueryHandler(method_delete_hutang, pattern=r'^QORTEXDELETE',
+                                 pass_update_queue=True, pass_chat_data=True, pass_user_data=True),
+            MessageHandler(Filters.regex(
+                r'^(?!(start|CANCEL)\s).*$'), handler_hutang_description),
+            CallbackQueryHandler(handler_start, pattern=r'^CANCEL',
+                                 pass_update_queue=True, pass_chat_data=True, pass_user_data=True)
+
         ],
 
         BERAPA: [
@@ -269,17 +334,9 @@ conv_start = ConversationHandler(
             MessageHandler(Filters.text, dbase_simpan_hutang)
 
         ],
-        BUAT_BARU: [
-            CallbackQueryHandler(
-                set_hutang_kau, pattern=r'^KAU', pass_user_data=True),
-            CallbackQueryHandler(
-                set_hutang_dia, pattern=r'^DIA', pass_user_data=True),
-            CallbackQueryHandler(
-                set_hutang_dia, pattern=r'^TOLAK', pass_user_data=True),
-            MessageHandler(Filters.text, set_hutang_dia)
-        ]
+
     },
-    fallbacks=[CallbackQueryHandler(done, pattern=r'^CANCELLAA')],
+    fallbacks=[CallbackQueryHandler(done, pattern=r'^CANCEL')],
     per_chat=True
 )
 
@@ -289,7 +346,6 @@ dispatcher.add_handler(conv_start)
 
 @app.route('/{}'.format(bot_token), methods=['POST'])
 def respond():
-    start = time.time()
 
     update = Update.de_json(request.get_json(force=True), bot)
     print(update)
